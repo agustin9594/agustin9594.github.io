@@ -241,9 +241,89 @@
             }, [user]);
 
             // Lógica IA
+            // Lógica IA (Versión de Diagnóstico)
             const processWithGemini = async (text) => {
                 setLoadingAI(true);
                 const apiKey = GEMINI_API_KEY; 
+
+                // 1. Verificamos si la clave existe
+                if (!apiKey || apiKey.includes("PEGA_TU_CLAVE")) {
+                    alert("ERROR: La API Key de Gemini no está configurada o es incorrecta.");
+                    setLoadingAI(false);
+                    return;
+                }
+                
+                const recentTransactions = transactions.slice(0, 30).map(t => {
+                    let dateStr = "Hoy";
+                    if (t.date && t.date.seconds) {
+                        const d = new Date(t.date.seconds * 1000);
+                        dateStr = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+                    }
+                    return `- [${dateStr}] ${t.type}: $${t.amount} | Cat: ${t.category}/${t.subcategory || '-'} | Det: ${t.detail || '-'}`;
+                }).join("\n");
+
+                const systemPrompt = `
+                    Actúa como una app de finanzas (Modo iOS).
+                    Datos recientes: ${recentTransactions}
+                    INSTRUCCIONES:
+                    1. SI ES UN NUEVO REGISTRO: Responde JSON: { "action": "add", "type": "gasto"|"ingreso", "amount": number, "category": string, "subcategory": string, "detail": string, "response_text": string }
+                    2. SI ES UNA CONSULTA: Responde JSON: { "action": "query", "response_text": string }
+                `;
+
+                try {
+                    // Usamos la URL v1beta y el modelo gemini-1.5-flash (el más estándar)
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+                    
+                    console.log("Intentando conectar a:", url); // Para ver en consola
+
+                    const response = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: text }] }],
+                                systemInstruction: { parts: [{ text: systemPrompt }] },
+                                generationConfig: { responseMimeType: "application/json" }
+                            })
+                        }
+                    );
+
+                    // Si la respuesta no es OK (200), lanzamos el error exacto
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        console.error("Error detallado de Google:", errorData);
+                        throw new Error(`Error ${response.status}: ${errorData.error?.message || response.statusText}`);
+                    }
+
+                    const data = await response.json();
+                    
+                    if (!data.candidates) throw new Error("La IA no devolvió candidatos.");
+
+                    const result = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text);
+                    
+                    if (result.action === "add") {
+                        await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'), {
+                            ...result,
+                            date: serverTimestamp()
+                        });
+                        addMessage("system", result.response_text || "Anotado.");
+                    } else {
+                        if (text.toLowerCase().includes('balance') || text.toLowerCase().includes('queda')) {
+                             const ing = transactions.filter(t => t.type === 'ingreso').reduce((a,b)=>a+b.amount,0);
+                             const gas = transactions.filter(t => t.type === 'gasto').reduce((a,b)=>a+b.amount,0);
+                             addMessage("system", `📊 Balance: $${ing - gas}`);
+                        } else {
+                             addMessage("system", result.response_text);
+                        }
+                    }
+
+                } catch (e) {
+                    console.error(e);
+                    // AQUÍ ESTÁ EL TRUCO: Te mostrará el error en la pantalla del chat
+                    addMessage("system", `🚨 ERROR TÉCNICO: ${e.message}`);
+                } finally {
+                    setLoadingAI(false);
+                }
+            };
                 
                 // --- CAMBIO CLAVE 1: Preparar los datos con fecha legible y detalles ---
                 const recentTransactions = transactions.slice(0, 30).map(t => {
