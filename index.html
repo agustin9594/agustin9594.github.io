@@ -6,9 +6,8 @@
     <title>Finanzas IA</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Animaciones extra */
-        @keyframes slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
-        .animate-slide-up { animation: slide-up 0.3s ease-out forwards; }
+        @keyframes fade-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
     </style>
     
     <script type="importmap">
@@ -23,7 +22,6 @@
       }
     }
     </script>
-
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-[#f2f2f7]">
@@ -33,16 +31,35 @@
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-        import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
-        import { Send, Mic, Download, MoreVertical, StopCircle, ChevronLeft, Share } from 'lucide-react';
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            signOut,
+            onAuthStateChanged
+        } from 'firebase/auth';
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            query, 
+            orderBy, 
+            onSnapshot, 
+            serverTimestamp,
+            where
+        } from 'firebase/firestore';
+        import { 
+            Send, Mic, Download, MoreVertical, StopCircle, 
+            ChevronLeft, Share, LogOut, User 
+        } from 'lucide-react';
 
         // ---------------------------------------------------------
-        // ⚠️ ZONA DE CONFIGURACIÓN IMPORTANTE ⚠️
-        // Debes reemplazar esto con TUS datos reales de Firebase
+        // ⚠️ ZONA DE CONFIGURACIÓN - PEGA TUS CLAVES AQUÍ OTRA VEZ
         // ---------------------------------------------------------
         
-        const firebaseConfig = {
+        const firebaseConfig = {            
             apiKey: "AIzaSyDGpXkfs-CQXnq6CeOGl6AEHIUXqbDvF8U",
             authDomain: "finanzaschat-54721.firebaseapp.com",
             projectId: "finanzaschat-54721",
@@ -52,10 +69,10 @@
             measurementId: "G-W5P04LQSXH"
         };
         
-        // Clave de Gemini (Pon la tuya aquí si la tienes)
+        // Pega tu clave de Gemini (la que empieza con AIza...)
         const GEMINI_API_KEY = "AIzaSyBsrxA4VfJT8UflwzrOeKyuDLM6ET6vmbI"; 
 
-        const appId = 'default-app-id'; 
+        const appId = 'default-app-id';
         // ---------------------------------------------------------
 
         // Inicializar Firebase
@@ -67,6 +84,106 @@
         const IOS_SAFE_AREA_TOP = "env(safe-area-inset-top)";
         const IOS_SAFE_AREA_BOTTOM = "env(safe-area-inset-bottom)";
 
+        // --- Componente de Login ---
+        const LoginScreen = ({ onLoginSuccess }) => {
+            const [email, setEmail] = useState("");
+            const [password, setPassword] = useState("");
+            const [isRegistering, setIsRegistering] = useState(false);
+            const [error, setError] = useState("");
+            const [loading, setLoading] = useState(false);
+
+            const handleAuth = async (e) => {
+                e.preventDefault();
+                setError("");
+                setLoading(true);
+                try {
+                    if (isRegistering) {
+                        await createUserWithEmailAndPassword(auth, email, password);
+                    } else {
+                        await signInWithEmailAndPassword(auth, email, password);
+                    }
+                } catch (err) {
+                    console.error(err);
+                    let msg = "Error de autenticación";
+                    if (err.code === 'auth/invalid-email') msg = "El correo no es válido.";
+                    if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') msg = "Usuario o contraseña incorrectos.";
+                    if (err.code === 'auth/wrong-password') msg = "Contraseña incorrecta.";
+                    if (err.code === 'auth/email-already-in-use') msg = "Este correo ya está registrado.";
+                    if (err.code === 'auth/weak-password') msg = "La contraseña debe tener al menos 6 caracteres.";
+                    setError(msg);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="flex flex-col h-screen bg-[#f2f2f7] justify-center px-6">
+                    <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm mx-auto">
+                        <div className="flex justify-center mb-6">
+                            <div className="w-16 h-16 bg-[#007AFF] rounded-2xl flex items-center justify-center text-white text-3xl shadow-lg">
+                                💸
+                            </div>
+                        </div>
+                        <h2 className="text-2xl font-bold text-center mb-1 text-gray-800">
+                            {isRegistering ? "Crear Cuenta" : "Bienvenido"}
+                        </h2>
+                        <p className="text-center text-gray-500 mb-8 text-sm">
+                            {isRegistering ? "Registra tus gastos en la nube" : "Inicia sesión para sincronizar"}
+                        </p>
+
+                        <form onSubmit={handleAuth} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 mb-1 ml-1 uppercase">Correo</label>
+                                <input 
+                                    type="email" 
+                                    required
+                                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/20 transition text-gray-700"
+                                    placeholder="ejemplo@correo.com"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 mb-1 ml-1 uppercase">Contraseña</label>
+                                <input 
+                                    type="password" 
+                                    required
+                                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/20 transition text-gray-700"
+                                    placeholder="••••••••"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                />
+                            </div>
+
+                            {error && <div className="text-red-500 text-sm text-center bg-red-50 p-2 rounded-lg">{error}</div>}
+
+                            <button 
+                                type="submit" 
+                                disabled={loading}
+                                className="w-full bg-[#007AFF] hover:bg-[#0063ce] text-white font-semibold py-3.5 rounded-xl shadow-lg shadow-blue-500/30 transition transform active:scale-95 disabled:opacity-70 flex justify-center items-center"
+                            >
+                                {loading ? (
+                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                    isRegistering ? "Registrarse" : "Ingresar"
+                                )}
+                            </button>
+                        </form>
+
+                        <div className="mt-6 text-center">
+                            <button 
+                                onClick={() => { setIsRegistering(!isRegistering); setError(""); }}
+                                className="text-[#007AFF] text-sm font-medium hover:underline"
+                            >
+                                {isRegistering ? "¿Ya tienes cuenta? Ingresa aquí" : "¿Nuevo usuario? Crea una cuenta"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Componente Principal App ---
         function App() {
             const [user, setUser] = useState(null);
             const [messages, setMessages] = useState([]);
@@ -75,27 +192,24 @@
             const [isRecording, setIsRecording] = useState(false);
             const [loadingAI, setLoadingAI] = useState(false);
             const [showInstallHelp, setShowInstallHelp] = useState(false);
+            const [showMenu, setShowMenu] = useState(false);
             
             const messagesEndRef = useRef(null);
             const recognitionRef = useRef(null);
+
+            // Auth listener
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+                    setUser(currentUser);
+                });
+                return () => unsubscribe();
+            }, []);
 
             // Detectar iOS
             useEffect(() => {
                 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
                 const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
-                if (isIOS && !isStandalone) {
-                    setTimeout(() => setShowInstallHelp(true), 2000);
-                }
-            }, []);
-
-            // Auth
-            useEffect(() => {
-                const initAuth = async () => {
-                    await signInAnonymously(auth);
-                };
-                initAuth();
-                const unsubscribe = onAuthStateChanged(auth, setUser);
-                return () => unsubscribe();
+                if (isIOS && !isStandalone) setTimeout(() => setShowInstallHelp(true), 3000);
             }, []);
 
             // Cargar Transacciones
@@ -120,7 +234,7 @@
                     setMessages([{
                         id: 'welcome',
                         role: 'system',
-                        text: '¡Hola! Soy tu contador personal IA. Toca el micrófono para registrar gastos.',
+                        text: '¡Hola! Soy tu contador personal. Tus datos ahora están sincronizados.',
                         timestamp: new Date()
                     }]);
                 }
@@ -129,14 +243,15 @@
             // Lógica IA
             const processWithGemini = async (text) => {
                 setLoadingAI(true);
+                // Usamos la clave definida arriba
+                const apiKey = GEMINI_API_KEY; 
                 
                 const recentTransactions = transactions.slice(0, 20).map(t => 
                     `- ${t.type}: $${t.amount} (${t.category}/${t.subcategory})`
                 ).join("\n");
 
                 const systemPrompt = `
-                    Actúa como una app de finanzas.
-                    El usuario te hablará natural.
+                    Actúa como una app de finanzas (Modo iOS).
                     CATEGORIAS: Comida, Alquiler, Viaje, Limpieza, Higiene, Educacion, Servicios, Emergencias, Ingresos.
                     SI ES REGISTRO: Responde JSON: { "action": "add", "type": "gasto"|"ingreso", "amount": number, "category": string, "subcategory": string, "detail": string, "response_text": string }
                     SI ES CONSULTA: Responde JSON: { "action": "query", "response_text": string }
@@ -145,7 +260,7 @@
 
                 try {
                     const response = await fetch(
-                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
                         {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -159,12 +274,9 @@
 
                     const data = await response.json();
                     
-                    if (!data.candidates) {
-                        throw new Error("Error en respuesta de IA");
-                    }
+                    if (!data.candidates) throw new Error("Sin respuesta de IA");
 
-                    const resultText = data.candidates[0].content.parts[0].text;
-                    const result = JSON.parse(resultText);
+                    const result = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text);
                     
                     if (result.action === "add") {
                         await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'), {
@@ -176,7 +288,7 @@
                         if (text.toLowerCase().includes('balance') || text.toLowerCase().includes('queda')) {
                              const ing = transactions.filter(t => t.type === 'ingreso').reduce((a,b)=>a+b.amount,0);
                              const gas = transactions.filter(t => t.type === 'gasto').reduce((a,b)=>a+b.amount,0);
-                             addMessage("system", `Balance actual:\nIngresos: $${ing}\nGastos: $${gas}\nTotal: $${ing - gas}`);
+                             addMessage("system", `Balance Sincronizado:\nIngresos: $${ing}\nGastos: $${gas}\nTotal: $${ing - gas}`);
                         } else {
                              addMessage("system", result.response_text);
                         }
@@ -184,7 +296,7 @@
 
                 } catch (e) {
                     console.error(e);
-                    addMessage("system", "Error de conexión o configuración de API Key.");
+                    addMessage("system", "Error de conexión. Intenta de nuevo.");
                 } finally {
                     setLoadingAI(false);
                 }
@@ -201,12 +313,15 @@
                 setInputText("");
             };
 
+            const handleLogout = () => {
+                signOut(auth);
+                setMessages([]);
+                setShowMenu(false);
+            };
+
             const startRecording = () => {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) {
-                    alert("Navegador no soportado. Usa Safari o Chrome.");
-                    return;
-                }
+                if (!SpeechRecognition) { alert("Usa Safari o Chrome."); return; }
                 const recognition = new SpeechRecognition();
                 recognition.lang = 'es-AR';
                 recognition.onstart = () => setIsRecording(true);
@@ -215,26 +330,47 @@
                 recognitionRef.current = recognition;
                 recognition.start();
             };
-
             const stopRecording = () => recognitionRef.current?.stop();
+
+            if (!user) {
+                return <LoginScreen />;
+            }
 
             return (
                 <div className="flex flex-col h-screen font-sans text-gray-900 overflow-hidden">
                     {/* Header */}
-                    <div className="bg-white/90 backdrop-blur-md border-b border-gray-200 px-4 flex items-center justify-between sticky top-0 z-20 pt-4 pb-3">
-                        <div className="flex items-center gap-2 text-[#007AFF]">
-                            <ChevronLeft size={24} />
-                            <span className="text-lg">Atrás</span>
+                    <div className="bg-white/90 backdrop-blur-md border-b border-gray-200 px-4 flex items-center justify-between sticky top-0 z-20"
+                         style={{ paddingTop: `max(1rem, ${IOS_SAFE_AREA_TOP})`, paddingBottom: '0.8rem' }}>
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-[#007AFF]">
+                                <User size={16} />
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="font-semibold text-sm leading-none">Finanzas</span>
+                                <span className="text-[10px] text-gray-500">{user.email?.split('@')[0]}</span>
+                            </div>
                         </div>
-                        <div className="font-semibold text-black">Finanzas IA</div>
-                        <div className="flex gap-3 text-[#007AFF]">
-                            <Download size={22} onClick={() => alert("Función de descarga disponible")} />
-                            <MoreVertical size={22} />
+                        
+                        <div className="relative">
+                            <button onClick={() => setShowMenu(!showMenu)} className="p-2 text-[#007AFF]">
+                                <MoreVertical size={22} />
+                            </button>
+                            {showMenu && (
+                                <div className="absolute right-0 top-full mt-2 bg-white rounded-xl shadow-xl border border-gray-100 w-40 overflow-hidden py-1 animate-fade-in z-50">
+                                    <button onClick={() => alert("Función Exportar (Próximamente)")} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                                        <Download size={16} /> Exportar
+                                    </button>
+                                    <div className="border-t border-gray-100 my-1"></div>
+                                    <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-sm hover:bg-red-50 text-red-600 flex items-center gap-2">
+                                        <LogOut size={16} /> Cerrar Sesión
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     {/* Chat */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#e5e5ea]">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#e5e5ea]" onClick={() => setShowMenu(false)}>
                         {messages.map(msg => (
                             <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-[75%] p-3 rounded-2xl text-[17px] shadow-sm ${
@@ -246,26 +382,25 @@
                                 </div>
                             </div>
                         ))}
-                        {loadingAI && <div className="text-gray-400 text-xs text-center">Analizando...</div>}
+                        {loadingAI && <div className="text-gray-400 text-xs text-center">Sincronizando...</div>}
                         <div ref={messagesEndRef} />
                     </div>
 
                     {/* Input */}
-                    <div className="bg-[#f9f9f9] border-t border-gray-200 p-2 flex items-end gap-2 pb-6">
-                        <button className="p-2 text-[#007AFF]">
-                            <span className="text-2xl">+</span>
-                        </button>
+                    <div className="bg-[#f9f9f9] border-t border-gray-200 p-2 flex items-end gap-2"
+                         style={{ paddingBottom: `max(0.5rem, ${IOS_SAFE_AREA_BOTTOM})` }}>
+                        <button className="p-2 text-[#007AFF]"> <span className="text-2xl">+</span> </button>
                         <div className="flex-1 bg-white border border-gray-300 rounded-full px-4 py-2 mb-1 flex items-center">
                             <input 
                                 value={inputText}
                                 onChange={(e) => setInputText(e.target.value)}
-                                placeholder="Escribe o di tu gasto..."
+                                placeholder="Nuevo gasto..."
                                 className="flex-1 bg-transparent outline-none text-[16px]"
                                 onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                             />
                         </div>
                         {inputText ? (
-                            <button onClick={handleSend} className="p-3 bg-[#007AFF] rounded-full text-white mb-1">
+                            <button onClick={handleSend} className="p-3 bg-[#007AFF] rounded-full text-white mb-1 shadow-md transform active:scale-90 transition">
                                 <Send size={18} />
                             </button>
                         ) : (
@@ -274,7 +409,7 @@
                                 onTouchEnd={stopRecording}
                                 onMouseDown={startRecording}
                                 onMouseUp={stopRecording}
-                                className={`p-3 rounded-full text-white mb-1 transition-all ${isRecording ? 'bg-red-500 scale-110' : 'bg-[#007AFF]'}`}
+                                className={`p-3 rounded-full text-white mb-1 transition-all shadow-md ${isRecording ? 'bg-red-500 scale-110' : 'bg-[#007AFF]'}`}
                             >
                                 {isRecording ? <StopCircle size={18} /> : <Mic size={18} />}
                             </button>
@@ -283,12 +418,12 @@
 
                     {/* Ayuda Install */}
                     {showInstallHelp && (
-                        <div className="absolute inset-x-0 bottom-0 bg-white/95 backdrop-blur shadow-2xl rounded-t-2xl p-6 z-50 border-t border-gray-200 animate-slide-up pb-10">
+                        <div className="absolute inset-x-0 bottom-0 bg-white/95 backdrop-blur shadow-2xl rounded-t-2xl p-6 z-50 border-t border-gray-200 pb-10">
                             <div className="flex justify-between items-start mb-4">
-                                <h3 className="font-bold text-lg">Instalar App en iPhone</h3>
+                                <h3 className="font-bold text-lg">Instalar App</h3>
                                 <button onClick={() => setShowInstallHelp(false)} className="text-gray-400">✕</button>
                             </div>
-                            <p className="text-sm text-gray-600 mb-4">Para tener esta app en pantalla completa:</p>
+                            <p className="text-sm text-gray-600 mb-4">Para pantalla completa y mejor experiencia:</p>
                             <ol className="text-sm space-y-3">
                                 <li className="flex items-center gap-3">
                                     <span className="bg-gray-100 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs">1</span>
@@ -296,7 +431,7 @@
                                 </li>
                                 <li className="flex items-center gap-3">
                                     <span className="bg-gray-100 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs">2</span>
-                                    <span>Selecciona <strong>"Agregar a inicio"</strong>.</span>
+                                    <span>Elige <strong>"Agregar a inicio"</strong>.</span>
                                 </li>
                             </ol>
                         </div>
